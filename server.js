@@ -54,13 +54,6 @@ io.on('connection', (socket) => {
     
     // Send game state to all players
     io.to(data.gameId).emit('update', game);
-    
-    console.log('Game state after join:', {
-      gameId: game.gameId,
-      phase: game.phase,
-      playerCount: game.players.length,
-      messages: game.messages.slice(-1)
-    });
   });
 
   // Start game
@@ -86,7 +79,6 @@ io.on('connection', (socket) => {
       
       // Send role info to each player
       game.players.forEach(player => {
-        console.log('Sending role to:', player.name, player.role);
         io.to(player.id).emit('role', {
           role: player.role,
           isMayor: player.isMayor
@@ -95,101 +87,107 @@ io.on('connection', (socket) => {
       
       // Update all players
       io.to(gameId).emit('update', game);
-      
-      console.log('Started game:', {
-        gameId: game.gameId,
-        phase: game.phase,
-        playerCount: game.players.length,
-        roles: game.players.map(p => ({ name: p.name, role: p.role }))
-      });
+    }
+  });
+
+  // Skip to voting
+  socket.on('skipToVoting', (gameId) => {
+    const game = games.get(gameId);
+    if (game && game.phase.startsWith('Night')) {
+      game.phase = 'Day - Voting';
+      game.messages.push('Night actions skipped. Voting begins!');
+      io.to(gameId).emit('update', game);
     }
   });
 
   // Mafia action
   socket.on('mafiaAction', ({ gameId, targetId }) => {
-    console.log('MAFIA ACTION:', gameId, targetId);
     const game = games.get(gameId);
     if (game && game.phase === 'Night - Mafia') {
       const target = game.players.find(p => p.id === targetId);
-      if (target) {
-        game.messages.push(`Mafia has chosen to eliminate ${target.name}`);
-        game.phase = 'Day - Voting';
-        io.to(gameId).emit('update', game);
-        
-        console.log('Mafia action completed:', {
-          gameId: gameId,
-          target: target.name,
-          newPhase: game.phase
-        });
-      }
+      game.messages.push(`Mafia has chosen to eliminate ${target?.name}`);
+      game.phase = 'Night - Sheriff';
+      io.to(gameId).emit('update', game);
+    }
+  });
+
+  // Sheriff action
+  socket.on('sheriffAction', ({ gameId, targetId, shoot }) => {
+    const game = games.get(gameId);
+    if (game && game.phase === 'Night - Sheriff') {
+      game.nightActions.sheriffTarget = targetId;
+      game.nightActions.sheriffShoot = shoot;
+      game.phase = 'Night - Doctor';
+      const target = game.players.find(p => p.id === targetId);
+      game.messages.push(`${shoot ? 'Sheriff will shoot' : 'Sheriff investigated'} ${target?.name}`);
+      io.to(gameId).emit('update', game);
+    }
+  });
+
+  // Doctor action
+  socket.on('doctorAction', ({ gameId, targetId }) => {
+    const game = games.get(gameId);
+    if (game && game.phase === 'Night - Doctor') {
+      game.nightActions.doctorTarget = targetId;
+      game.phase = 'Day - Voting';
+      const target = game.players.find(p => p.id === targetId);
+      game.messages.push(`Doctor will heal ${target?.name}`);
+      game.messages.push('Night ends. Day begins!');
+      io.to(gameId).emit('update', game);
     }
   });
 
   // Voting
   socket.on('vote', ({ gameId, targetId }) => {
-    console.log('VOTE:', gameId, targetId);
     const game = games.get(gameId);
     if (game && game.phase === 'Day - Voting') {
       const voter = game.players.find(p => p.id === socket.id);
       const target = game.players.find(p => p.id === targetId);
+      game.votes[voter.id] = targetId;
+      game.messages.push(`${voter?.name} voted for ${target?.name}`);
       
-      if (voter && target) {
-        game.messages.push(`${voter.name} voted for ${target.name}`);
-        
-        // Count votes
-        if (!game.votes[targetId]) {
-          game.votes[targetId] = 0;
-        }
-        game.votes[targetId]++;
-        
-        // Check if all players have voted
-        const totalVotes = Object.values(game.votes).reduce((a, b) => a + b, 0);
-        const requiredVotes = game.players.filter(p => p.alive).length;
-        
-        console.log('Vote count:', {
-          totalVotes: totalVotes,
-          requiredVotes: requiredVotes,
-          votes: game.votes
+      // Check if all players have voted
+      const totalVotes = Object.values(game.votes).length;
+      const requiredVotes = game.players.filter(p => p.alive).length;
+      
+      if (totalVotes === requiredVotes) {
+        // Count votes (mayor's vote counts as 2)
+        const voteCounts = {};
+        Object.entries(game.votes).forEach(([voterId, targetId]) => {
+          const voter = game.players.find(p => p.id === voterId);
+          const voteWeight = voter.isMayor ? 2 : 1;
+          voteCounts[targetId] = (voteCounts[targetId] || 0) + voteWeight;
         });
         
-        if (totalVotes === requiredVotes) {
-          // Find player with most votes
-          const maxVotes = Math.max(...Object.values(game.votes));
-          const eliminatedPlayerId = Object.keys(game.votes).find(id => game.votes[id] === maxVotes);
-          const eliminatedPlayer = game.players.find(p => p.id === eliminatedPlayerId);
-          
-          // Eliminate player
-          eliminatedPlayer.alive = false;
-          game.messages.push(`${eliminatedPlayer.name} was eliminated by vote!`);
-          
-          // Check win conditions
-          const alivePlayers = game.players.filter(p => p.alive);
-          const mafiaCount = alivePlayers.filter(p => p.role === 'Mafia').length;
-          
-          if (mafiaCount === 0) {
-            game.messages.push('🎉 Civilians win! All mafias have been eliminated!');
-            game.phase = 'GameOver';
-          } else if (mafiaCount >= alivePlayers.length - mafiaCount) {
-            game.messages.push('💀 Mafia wins! They now equal or outnumber the innocents!');
-            game.phase = 'GameOver';
-          } else {
-            // Next night
-            game.phase = 'Night - Mafia';
-            game.messages.push('Night phase begins...');
-            game.votes = {};
-          }
-          
-          io.to(gameId).emit('update', game);
-          
-          console.log('Voting completed:', {
-            gameId: gameId,
-            eliminated: eliminatedPlayer.name,
-            newPhase: game.phase,
-            alivePlayers: alivePlayers.length
-          });
+        // Find player with most votes
+        const maxVotes = Math.max(...Object.values(voteCounts));
+        const eliminatedPlayerId = Object.keys(voteCounts).find(id => voteCounts[id] === maxVotes);
+        const eliminatedPlayer = game.players.find(p => p.id === eliminatedPlayerId);
+        
+        // Eliminate player
+        eliminatedPlayer.alive = false;
+        game.messages.push(`${eliminatedPlayer.name} was eliminated by vote!`);
+        
+        // Check win conditions
+        const alivePlayers = game.players.filter(p => p.alive);
+        const mafiaCount = alivePlayers.filter(p => p.role === 'Mafia').length;
+        
+        if (mafiaCount === 0) {
+          game.messages.push('🎉 Civilians win! All mafias have been eliminated!');
+          game.phase = 'GameOver';
+        } else if (mafiaCount >= alivePlayers.length - mafiaCount) {
+          game.messages.push('💀 Mafia wins! They now equal or outnumber the innocents!');
+          game.phase = 'GameOver';
         } else {
-          io.to(gameId).emit('update', game);
+          // Next night
+          game.phase = 'Night - Mafia';
+          game.messages.push('Night phase begins...');
+          game.votes = {};
         }
+        
+        io.to(gameId).emit('update', game);
+      } else {
+        io.to(gameId).emit('update', game);
       }
     }
   });
