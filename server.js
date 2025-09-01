@@ -15,23 +15,25 @@ const games = new Map();
 
 // Socket connection
 io.on('connection', (socket) => {
-  console.log('Connected:', socket.id);
+  console.log('New connection:', socket.id);
 
-  // Join game
-  socket.on('join', ({ gameId, name }) => {
+  // Log all events for debugging
+  socket.on('join', (data) => {
+    console.log('JOIN:', data);
+    
     // Create game if doesn't exist
-    if (!games.has(gameId)) {
-      games.set(gameId, {
-        gameId,
+    if (!games.has(data.gameId)) {
+      games.set(data.gameId, {
+        gameId: data.gameId,
         players: [],
         phase: 'Lobby',
-        messages: [`Game ${gameId} created!`],
+        messages: [`Game ${data.gameId} created!`],
         nightActions: {},
         votes: {}
       });
     }
 
-    const game = games.get(gameId);
+    const game = games.get(data.gameId);
     
     // Remove player if already in game
     game.players = game.players.filter(p => p.id !== socket.id);
@@ -39,24 +41,27 @@ io.on('connection', (socket) => {
     // Add player
     const player = { 
       id: socket.id, 
-      name, 
+      name: data.name,
       connected: true,
       alive: true,
       role: null,
       isMayor: false
     };
     game.players.push(player);
-    socket.join(gameId);
+    socket.join(data.gameId);
     
     // Update game messages
-    game.messages.push(`${name} joined the game`);
+    game.messages.push(`${data.name} joined the game`);
     
     // Send game state to all players
-    io.to(gameId).emit('update', game);
+    io.to(data.gameId).emit('update', game);
+    
+    console.log('Game state after join:', game);
   });
 
   // Start game
   socket.on('startGame', (gameId) => {
+    console.log('START GAME:', gameId);
     const game = games.get(gameId);
     if (game && game.players.length >= 4 && game.phase === 'Lobby') {
       // Assign roles
@@ -77,6 +82,7 @@ io.on('connection', (socket) => {
       
       // Send role info to each player
       game.players.forEach(player => {
+        console.log('Sending role to:', player.name, player.role);
         io.to(player.id).emit('role', {
           role: player.role,
           isMayor: player.isMayor
@@ -88,71 +94,33 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Start voting
-  socket.on('startVoting', (gameId) => {
-    const game = games.get(gameId);
-    if (game && game.phase === 'Day - Discussion') {
-      game.phase = 'Day - Voting';
-      game.messages.push('Discussion ended. Voting begins!');
-      io.to(gameId).emit('update', game);
-    }
-  });
-
   // Mafia action
   socket.on('mafiaAction', ({ gameId, targetId }) => {
+    console.log('MAFIA ACTION:', gameId, targetId);
     const game = games.get(gameId);
     if (game && game.phase === 'Night - Mafia') {
-      game.nightActions.mafiaTarget = targetId;
-      game.phase = 'Night - Sheriff';
       const target = game.players.find(p => p.id === targetId);
       game.messages.push(`Mafia has chosen to eliminate ${target?.name}`);
-      io.to(gameId).emit('update', game);
-    }
-  });
-
-  // Sheriff action
-  socket.on('sheriffAction', ({ gameId, targetId, shoot }) => {
-    const game = games.get(gameId);
-    if (game && game.phase === 'Night - Sheriff') {
-      game.nightActions.sheriffTarget = targetId;
-      game.nightActions.sheriffShoot = shoot;
-      game.phase = 'Night - Doctor';
-      const target = game.players.find(p => p.id === targetId);
-      game.messages.push(`${shoot ? 'Sheriff will shoot' : 'Sheriff investigated'} ${target?.name}`);
-      io.to(gameId).emit('update', game);
-    }
-  });
-
-  // Doctor action
-  socket.on('doctorAction', ({ gameId, targetId }) => {
-    const game = games.get(gameId);
-    if (game && game.phase === 'Night - Doctor') {
-      game.nightActions.doctorTarget = targetId;
-      game.phase = 'Day - Discussion';
-      const target = game.players.find(p => p.id === targetId);
-      game.messages.push(`Doctor will heal ${target?.name}`);
-      game.messages.push('Night ends. Day begins!');
+      game.phase = 'Day - Voting'; // Simplified for testing
       io.to(gameId).emit('update', game);
     }
   });
 
   // Voting
   socket.on('vote', ({ gameId, targetId }) => {
+    console.log('VOTE:', gameId, targetId);
     const game = games.get(gameId);
     if (game && game.phase === 'Day - Voting') {
-      // Find the voter
       const voter = game.players.find(p => p.id === socket.id);
-      if (voter && voter.alive) {
-        game.votes[voter.id] = targetId;
-        const target = game.players.find(p => p.id === targetId);
-        game.messages.push(`${voter.name} voted for ${target?.name}`);
-        io.to(gameId).emit('update', game);
-      }
+      const target = game.players.find(p => p.id === targetId);
+      game.messages.push(`${voter?.name} voted for ${target?.name}`);
+      io.to(gameId).emit('update', game);
     }
   });
 
   // Handle disconnection
   socket.on('disconnect', () => {
+    console.log('DISCONNECT:', socket.id);
     for (const [gameId, game] of games.entries()) {
       const playerIndex = game.players.findIndex(p => p.id === socket.id);
       if (playerIndex !== -1) {
