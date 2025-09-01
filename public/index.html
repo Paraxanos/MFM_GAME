@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mafia for Monke</title>
+  <title>Mafia for Monke 🐵</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     body {
       margin: 0;
       padding: 20px;
-      font-family: Arial, sans-serif;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: linear-gradient(135deg, #1e3c72, #2a5298);
       min-height: 100vh;
       color: white;
     }
     .container {
-      max-width: 800px;
+      max-width: 1000px;
       margin: 0 auto;
       background: rgba(0, 0, 0, 0.3);
       border-radius: 10px;
@@ -40,7 +40,7 @@
       margin-bottom: 5px;
       font-weight: bold;
     }
-    .form-group input {
+    .form-group input, .form-group select {
       width: 100%;
       padding: 10px;
       border: none;
@@ -60,6 +60,13 @@
     .btn:hover {
       opacity: 0.9;
     }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .game-container {
+      display: none;
+    }
     .game-info {
       margin: 20px 0;
       padding: 15px;
@@ -77,7 +84,24 @@
       margin: 5px 0;
       background: rgba(255, 255, 255, 0.1);
       border-radius: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+    .player.dead {
+      text-decoration: line-through;
+      opacity: 0.6;
+    }
+    .player-role {
+      font-size: 0.9em;
+      opacity: 0.8;
+    }
+    .mafia { color: #ff6b6b; }
+    .sheriff { color: #4ecdc4; }
+    .doctor { color: #45b7d1; }
+    .mayor { color: #9b59b6; }
+    .jester { color: #f1c40f; }
+    .civilian { color: #95a5a6; }
     .messages {
       margin: 20px 0;
       padding: 15px;
@@ -93,13 +117,38 @@
     .message:last-child {
       border-bottom: none;
     }
+    .game-phase {
+      margin: 20px 0;
+      padding: 15px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 5px;
+    }
+    .action-buttons {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin: 15px 0;
+    }
+    .vote-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin: 15px 0;
+    }
+    .rules {
+      margin: 20px 0;
+      padding: 15px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 5px;
+      font-size: 0.9em;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <h1>Mafia for Monke 🐵</h1>
-      <p>A simple multiplayer game</p>
+      <p>A social deduction game of deception and strategy</p>
     </div>
 
     <!-- Join Form -->
@@ -118,11 +167,13 @@
       <button onclick="joinGame()" class="btn">Join Game</button>
     </div>
 
-    <!-- Game Interface (hidden initially) -->
-    <div id="gameInterface" style="display: none;">
+    <!-- Game Interface -->
+    <div id="gameInterface" class="game-container">
       <div class="game-info">
         <h2>Game: <span id="gameIdDisplay"></span></h2>
-        <p>Players: <span id="playerCount">0</span></p>
+        <p>Players: <span id="playerCount">0</span> | Alive: <span id="aliveCount">0</span></p>
+        <p>Phase: <span id="gamePhase">Lobby</span></p>
+        <div id="yourRole" style="margin-top: 10px; font-weight: bold;"></div>
       </div>
 
       <div class="players">
@@ -130,9 +181,20 @@
         <div id="playersList"></div>
       </div>
 
+      <div id="gamePhaseContent">
+        <!-- This will be filled by JavaScript -->
+      </div>
+
       <div class="messages">
-        <h3>Game Messages</h3>
+        <h3>Game Log</h3>
         <div id="messages"></div>
+      </div>
+
+      <div class="rules">
+        <h3>How to Play</h3>
+        <p><strong>Night Phase:</strong> Mafia kills, Sheriff investigates/shoots, Doctor heals</p>
+        <p><strong>Day Phase:</strong> Discussion and voting (Mayor's vote counts as 2)</p>
+        <p><strong>Win Conditions:</strong> Civilians win when all mafia are eliminated. Mafia win when they equal or outnumber innocents.</p>
       </div>
     </div>
   </div>
@@ -145,8 +207,17 @@
     const gameIdInput = document.getElementById('gameId');
     const gameIdDisplay = document.getElementById('gameIdDisplay');
     const playerCount = document.getElementById('playerCount');
+    const aliveCount = document.getElementById('aliveCount');
+    const gamePhase = document.getElementById('gamePhase');
+    const yourRole = document.getElementById('yourRole');
     const playersList = document.getElementById('playersList');
     const messages = document.getElementById('messages');
+    const gamePhaseContent = document.getElementById('gamePhaseContent');
+
+    // Game state
+    let socket = null;
+    let localPlayer = null;
+    let currentGameId = '';
 
     // Generate random game ID
     function generateId() {
@@ -170,7 +241,8 @@
       }
 
       // Connect to socket
-      const socket = io();
+      socket = io();
+      currentGameId = gameId;
       
       // Join game
       socket.emit('join', { gameId, name });
@@ -181,34 +253,226 @@
       gameInterface.style.display = 'block';
 
       // Listen for updates
-      socket.on('update', (game) => {
-        console.log('Game update:', game);
-        
-        // Update player count
-        playerCount.textContent = game.players.length;
-        
-        // Update players list
-        playersList.innerHTML = '';
-        game.players.forEach(player => {
-          const playerEl = document.createElement('div');
-          playerEl.className = 'player';
-          playerEl.textContent = player.name;
-          playersList.appendChild(playerEl);
-        });
-        
-        // Update messages
-        messages.innerHTML = '';
-        game.messages.forEach(msg => {
-          const msgEl = document.createElement('div');
-          msgEl.className = 'message';
-          msgEl.textContent = msg;
-          messages.appendChild(msgEl);
-        });
-        
-        // Scroll to bottom
-        messages.scrollTop = messages.scrollHeight;
+      socket.on('update', (gameState) => {
+        updateGameUI(gameState);
       });
-    };
+
+      // Listen for role assignment
+      socket.on('role', (roleData) => {
+        localPlayer = roleData;
+        yourRole.textContent = `You are: ${roleData.role}`;
+        if (roleData.isMayor) {
+          yourRole.textContent += ' (Mayor)';
+        }
+        yourRole.className = roleData.role.toLowerCase();
+      });
+    }
+
+    // Update UI with game state
+    function updateGameUI(gameState) {
+      console.log('Game state:', gameState);
+      
+      // Update counts
+      playerCount.textContent = gameState.players.length;
+      
+      const alivePlayers = gameState.players.filter(p => p.alive);
+      aliveCount.textContent = alivePlayers.length;
+      
+      // Update game phase
+      gamePhase.textContent = gameState.phase;
+      
+      // Update players list
+      playersList.innerHTML = '';
+      gameState.players.forEach(player => {
+        const playerEl = document.createElement('div');
+        playerEl.className = `player ${player.alive ? '' : 'dead'}`;
+        
+        const nameEl = document.createElement('div');
+        nameEl.textContent = player.name;
+        
+        const statusEl = document.createElement('div');
+        statusEl.style.display = 'flex';
+        statusEl.style.gap = '10px';
+        
+        const statusText = document.createElement('span');
+        statusText.textContent = player.alive ? '✓ Alive' : '✗ Dead';
+        statusText.style.color = player.alive ? '#4ecdc4' : '#ff6b6b';
+        
+        statusEl.appendChild(statusText);
+        
+        playerEl.appendChild(nameEl);
+        playerEl.appendChild(statusEl);
+        playersList.appendChild(playerEl);
+      });
+      
+      // Update messages
+      messages.innerHTML = '';
+      gameState.messages.forEach(msg => {
+        const msgEl = document.createElement('div');
+        msgEl.className = 'message';
+        msgEl.textContent = msg;
+        messages.appendChild(msgEl);
+      });
+      
+      // Scroll to bottom
+      messages.scrollTop = messages.scrollHeight;
+      
+      // Update phase content
+      updatePhaseContent(gameState);
+    }
+
+    // Update content based on game phase
+    function updatePhaseContent(gameState) {
+      gamePhaseContent.innerHTML = '';
+      
+      // Only show actions if player is alive and it's their turn
+      if (gameState.phase === 'Lobby') {
+        if (gameState.players.length >= 4) {
+          const startBtn = document.createElement('button');
+          startBtn.textContent = 'Start Game';
+          startBtn.className = 'btn';
+          startBtn.onclick = () => socket.emit('startGame', currentGameId);
+          gamePhaseContent.appendChild(startBtn);
+        } else {
+          const msg = document.createElement('p');
+          msg.textContent = `Need at least 4 players to start. Currently ${gameState.players.length}/4`;
+          gamePhaseContent.appendChild(msg);
+        }
+      }
+      else if (gameState.phase === 'Night - Mafia') {
+        if (localPlayer && localPlayer.role === 'Mafia' && localPlayer.alive) {
+          const msg = document.createElement('p');
+          msg.textContent = 'Choose a player to eliminate:';
+          gamePhaseContent.appendChild(msg);
+          
+          const buttons = document.createElement('div');
+          buttons.className = 'action-buttons';
+          
+          const alivePlayers = gameState.players.filter(p => p.alive && p.role !== 'Mafia');
+          alivePlayers.forEach(player => {
+            const btn = document.createElement('button');
+            btn.textContent = player.name;
+            btn.className = 'btn';
+            btn.onclick = () => {
+              socket.emit('mafiaAction', { gameId: currentGameId, targetId: player.id });
+              gamePhaseContent.innerHTML = '<p>Waiting for other actions...</p>';
+            };
+            buttons.appendChild(btn);
+          });
+          
+          gamePhaseContent.appendChild(buttons);
+        } else {
+          const msg = document.createElement('p');
+          msg.textContent = 'Waiting for Mafia to make their move...';
+          msg.style.color = '#ff6b6b';
+          gamePhaseContent.appendChild(msg);
+        }
+      }
+      else if (gameState.phase === 'Night - Sheriff') {
+        if (localPlayer && localPlayer.role === 'Sheriff' && localPlayer.alive) {
+          const msg = document.createElement('p');
+          msg.textContent = 'Choose a player to investigate or shoot:';
+          gamePhaseContent.appendChild(msg);
+          
+          const buttons = document.createElement('div');
+          buttons.className = 'action-buttons';
+          
+          const alivePlayers = gameState.players.filter(p => p.alive && p.id !== localPlayer.id);
+          alivePlayers.forEach(player => {
+            const btn = document.createElement('button');
+            btn.textContent = `Investigate ${player.name}`;
+            btn.className = 'btn';
+            btn.onclick = () => {
+              socket.emit('sheriffAction', { 
+                gameId: currentGameId, 
+                targetId: player.id,
+                shoot: false 
+              });
+              gamePhaseContent.innerHTML = '<p>Waiting for Doctor...</p>';
+            };
+            buttons.appendChild(btn);
+          });
+          
+          gamePhaseContent.appendChild(buttons);
+          
+          const shootBtn = document.createElement('button');
+          shootBtn.textContent = 'Shoot Selected Player';
+          shootBtn.className = 'btn';
+          shootBtn.style.backgroundColor = '#e74c3c';
+          shootBtn.onclick = () => {
+            socket.emit('sheriffAction', { 
+              gameId: currentGameId, 
+              targetId: null, // Will be handled server-side
+              shoot: true 
+            });
+            gamePhaseContent.innerHTML = '<p>Sheriff has chosen to shoot!</p>';
+          };
+          gamePhaseContent.appendChild(shootBtn);
+        } else {
+          const msg = document.createElement('p');
+          msg.textContent = 'Waiting for Sheriff to make their move...';
+          msg.style.color = '#4ecdc4';
+          gamePhaseContent.appendChild(msg);
+        }
+      }
+      else if (gameState.phase === 'Night - Doctor') {
+        if (localPlayer && localPlayer.role === 'Doctor' && localPlayer.alive) {
+          const msg = document.createElement('p');
+          msg.textContent = 'Choose a player to heal:';
+          gamePhaseContent.appendChild(msg);
+          
+          const buttons = document.createElement('div');
+          buttons.className = 'action-buttons';
+          
+          const alivePlayers = gameState.players;
+          alivePlayers.forEach(player => {
+            const btn = document.createElement('button');
+            btn.textContent = `Heal ${player.name}`;
+            btn.className = 'btn';
+            btn.onclick = () => {
+              socket.emit('doctorAction', { gameId: currentGameId, targetId: player.id });
+              gamePhaseContent.innerHTML = '<p>All night actions completed. Waiting for day...</p>';
+            };
+            buttons.appendChild(btn);
+          });
+          
+          gamePhaseContent.appendChild(buttons);
+        } else {
+          const msg = document.createElement('p');
+          msg.textContent = 'Waiting for Doctor to make their move...';
+          msg.style.color = '#45b7d1';
+          gamePhaseContent.appendChild(msg);
+        }
+      }
+      else if (gameState.phase === 'Day - Discussion') {
+        const btn = document.createElement('button');
+        btn.textContent = 'Start Voting';
+        btn.className = 'btn';
+        gamePhaseContent.appendChild(btn);
+      }
+      else if (gameState.phase === 'Day - Voting') {
+        const msg = document.createElement('p');
+        msg.textContent = 'Vote for the player you believe is the mafia:';
+        gamePhaseContent.appendChild(msg);
+        
+        const buttons = document.createElement('div');
+        buttons.className = 'vote-buttons';
+        
+        const alivePlayers = gameState.players.filter(p => p.alive);
+        alivePlayers.forEach(player => {
+          const btn = document.createElement('button');
+          btn.textContent = player.name;
+          btn.className = 'btn';
+          btn.onclick = () => {
+            socket.emit('vote', { gameId: currentGameId, targetId: player.id });
+            gamePhaseContent.innerHTML = '<p>Voted! Waiting for others...</p>';
+          };
+          buttons.appendChild(btn);
+        });
+        
+        gamePhaseContent.appendChild(buttons);
+      }
+    }
 
     // Generate ID on load
     window.onload = function() {
