@@ -9,7 +9,7 @@
     body {
       margin: 0;
       padding: 20px;
-      font-family: Arial, sans-serif;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: linear-gradient(135deg, #1e3c72, #2a5298);
       min-height: 100vh;
       color: white;
@@ -28,7 +28,9 @@
     .header h1 {
       margin: 0;
       font-size: 2.5em;
-      color: #ff6b6b;
+      background: linear-gradient(45deg, #ff6b6b, #5f27cd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
     }
     .form-group {
       margin-bottom: 15px;
@@ -46,7 +48,7 @@
       box-sizing: border-box;
     }
     .btn {
-      background: #ff6b6b;
+      background: linear-gradient(45deg, #ff6b6b, #5f27cd);
       color: white;
       border: none;
       padding: 12px 20px;
@@ -78,7 +80,20 @@
       margin: 5px 0;
       background: rgba(255, 255, 255, 0.1);
       border-radius: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+    .player-role {
+      font-size: 0.9em;
+      opacity: 0.8;
+    }
+    .mafia { color: #ff6b6b; }
+    .sheriff { color: #4ecdc4; }
+    .doctor { color: #45b7d1; }
+    .mayor { color: #9b59b6; }
+    .jester { color: #f1c40f; }
+    .civilian { color: #95a5a6; }
     .messages {
       margin: 20px 0;
       padding: 15px;
@@ -91,12 +106,26 @@
       padding: 5px 0;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
-    .debug {
-      background: rgba(255, 0, 0, 0.1);
-      padding: 10px;
-      margin: 10px 0;
+    .message:last-child {
+      border-bottom: none;
+    }
+    .actions {
+      margin: 20px 0;
+      padding: 15px;
+      background: rgba(255, 255, 255, 0.1);
       border-radius: 5px;
-      font-size: 12px;
+    }
+    .action-buttons {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin: 15px 0;
+    }
+    .vote-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin: 15px 0;
     }
   </style>
 </head>
@@ -115,10 +144,12 @@
       </div>
       <div class="form-group">
         <label>Game ID</label>
-        <input type="text" id="gameId" placeholder="Game ID">
+        <div style="display: flex;">
+          <input type="text" id="gameId" placeholder="Game ID">
+          <button onclick="generateId()" style="margin-left: 5px; padding: 0 10px;">Generate</button>
+        </div>
       </div>
       <button onclick="joinGame()" class="btn">Join Game</button>
-      <button onclick="generateId()" class="btn" style="background: #4ecdc4; margin-top: 10px;">Generate Game ID</button>
     </div>
 
     <!-- Game Interface -->
@@ -135,7 +166,7 @@
         <div id="playersList"></div>
       </div>
 
-      <div id="actions">
+      <div class="actions">
         <h3>Actions</h3>
         <div id="actionButtons"></div>
       </div>
@@ -144,8 +175,6 @@
         <h3>Game Log</h3>
         <div id="messages"></div>
       </div>
-
-      <div class="debug" id="debugInfo"></div>
     </div>
   </div>
 
@@ -162,22 +191,15 @@
     const playersList = document.getElementById('playersList');
     const messages = document.getElementById('messages');
     const actionButtons = document.getElementById('actionButtons');
-    const debugInfo = document.getElementById('debugInfo');
 
     // Game state
     let socket = null;
     let currentGameId = '';
     let localPlayer = null;
 
-    function logDebug(message) {
-      console.log('[DEBUG]', message);
-      debugInfo.textContent = message;
-    }
-
     function generateId() {
       const id = Math.random().toString(36).substr(2, 6).toUpperCase();
       gameIdInput.value = id;
-      logDebug('Generated Game ID: ' + id);
     }
 
     function joinGame() {
@@ -194,22 +216,10 @@
         return;
       }
 
-      logDebug('Connecting to server...');
-      
       // Connect to socket
       socket = io();
       
-      // Test connection
-      socket.on('connect', () => {
-        logDebug('Connected to server: ' + socket.id);
-      });
-      
-      socket.on('connect_error', (error) => {
-        logDebug('Connection error: ' + error.message);
-      });
-
       // Join game
-      logDebug('Joining game: ' + gameId + ' as ' + name);
       socket.emit('join', { gameId, name });
       
       // Update UI
@@ -220,21 +230,17 @@
 
       // Listen for updates
       socket.on('update', (gameState) => {
-        logDebug('Received game update');
         updateGameUI(gameState);
       });
 
       // Listen for role assignment
       socket.on('role', (roleData) => {
-        logDebug('Received role: ' + roleData.role);
         localPlayer = roleData;
         yourRole.textContent = roleData.role;
       });
     }
 
     function updateGameUI(gameState) {
-      logDebug('Updating UI: ' + gameState.phase);
-      
       // Update counts
       playerCount.textContent = gameState.players.length;
       
@@ -246,7 +252,22 @@
       gameState.players.forEach(player => {
         const playerEl = document.createElement('div');
         playerEl.className = 'player';
-        playerEl.textContent = `${player.name} (${player.role || 'Unknown'}) - ${player.alive ? 'Alive' : 'Dead'}`;
+        
+        const nameEl = document.createElement('div');
+        nameEl.textContent = player.name;
+        
+        const statusEl = document.createElement('div');
+        statusEl.style.display = 'flex';
+        statusEl.style.gap = '10px';
+        
+        const statusText = document.createElement('span');
+        statusText.textContent = player.alive ? '✓ Alive' : '✗ Dead';
+        statusText.style.color = player.alive ? '#4ecdc4' : '#ff6b6b';
+        
+        statusEl.appendChild(statusText);
+        
+        playerEl.appendChild(nameEl);
+        playerEl.appendChild(statusEl);
         playersList.appendChild(playerEl);
       });
       
@@ -266,35 +287,28 @@
     function updateActions(gameState) {
       actionButtons.innerHTML = '';
       
-      logDebug('Current phase: ' + gameState.phase);
-      logDebug('Local player: ' + (localPlayer ? localPlayer.role : 'none'));
-      
       if (gameState.phase === 'Lobby') {
         if (gameState.players.length >= 4) {
           const startBtn = document.createElement('button');
           startBtn.textContent = 'Start Game';
           startBtn.className = 'btn';
-          startBtn.onclick = () => {
-            logDebug('Starting game...');
-            socket.emit('startGame', currentGameId);
-          };
+          startBtn.onclick = () => socket.emit('startGame', currentGameId);
           actionButtons.appendChild(startBtn);
         }
       }
       else if (gameState.phase === 'Night - Mafia') {
-        if (localPlayer && localPlayer.role === 'Mafia') {
+        if (localPlayer && localPlayer.role === 'Mafia' && localPlayer.alive) {
           const msg = document.createElement('p');
-          msg.textContent = 'Mafia: Choose who to kill:';
+          msg.textContent = 'Choose who to eliminate:';
           actionButtons.appendChild(msg);
           
           const alivePlayers = gameState.players.filter(p => p.alive && p.role !== 'Mafia');
           alivePlayers.forEach(player => {
             const btn = document.createElement('button');
-            btn.textContent = 'Kill ' + player.name;
+            btn.textContent = `Kill ${player.name}`;
             btn.className = 'btn';
             btn.style.backgroundColor = '#e74c3c';
             btn.onclick = () => {
-              logDebug('Mafia killing: ' + player.name);
               socket.emit('mafiaAction', { gameId: currentGameId, targetId: player.id });
             };
             actionButtons.appendChild(btn);
@@ -309,10 +323,9 @@
         const alivePlayers = gameState.players.filter(p => p.alive);
         alivePlayers.forEach(player => {
           const btn = document.createElement('button');
-          btn.textContent = 'Vote for ' + player.name;
+          btn.textContent = `Vote for ${player.name}`;
           btn.className = 'btn';
           btn.onclick = () => {
-            logDebug('Voting for: ' + player.name);
             socket.emit('vote', { gameId: currentGameId, targetId: player.id });
           };
           actionButtons.appendChild(btn);
