@@ -30,7 +30,8 @@ io.on('connection', (socket) => {
           nightActions: {},
           votes: {},
           gameLog: [`Game created! ID: ${gameId}`],
-          winner: null
+          winner: null,
+          nightResults: [] // Store night results to reveal later
         });
       }
 
@@ -86,6 +87,7 @@ io.on('connection', (socket) => {
         game.currentPhase = 'mafia';
         game.nightActions = {};
         game.votes = {};
+        game.nightResults = []; // Clear previous night results
         game.gameLog = [...game.gameLog, 'Game started! Night phase begins...'];
         game.winner = null;
         
@@ -113,9 +115,8 @@ io.on('connection', (socket) => {
       if (game && game.currentPhase === 'mafia') {
         game.nightActions.mafiaTarget = targetId;
         game.currentPhase = 'sheriff';
-        const target = game.players.find(p => p.id === targetId);
-        game.gameLog.push(`Mafia has chosen to eliminate ${target?.name}`);
         
+        // Don't log individual actions - save for final reveal
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -131,9 +132,8 @@ io.on('connection', (socket) => {
         game.nightActions.sheriffTarget = targetId;
         game.nightActions.sheriffShoot = shoot;
         game.currentPhase = 'doctor';
-        const target = game.players.find(p => p.id === targetId);
-        game.gameLog.push(`${shoot ? 'Sheriff will shoot' : 'Sheriff investigated'} ${target?.name}`);
         
+        // Don't log individual actions - save for final reveal
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -148,9 +148,8 @@ io.on('connection', (socket) => {
       if (game && game.currentPhase === 'doctor') {
         game.nightActions.doctorTarget = targetId;
         game.currentPhase = 'results';
-        const target = game.players.find(p => p.id === targetId);
-        game.gameLog.push(`Doctor will heal ${target?.name}`);
         
+        // Don't log individual actions - save for final reveal
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -163,6 +162,12 @@ io.on('connection', (socket) => {
     try {
       const game = games.get(gameId);
       if (game && game.gameState === 'night') {
+        // Clear any previous night results
+        game.nightResults = [];
+        
+        // Add a message about skipping
+        game.nightResults.push('🌙 Night actions were skipped.');
+        
         game.currentPhase = 'voting';
         game.gameLog.push('Night actions skipped. Voting begins!');
         io.to(gameId).emit('gameUpdate', game);
@@ -194,17 +199,10 @@ io.on('connection', (socket) => {
         
         const voter = game.players.find(p => p.socketId === voterId);
         const target = game.players.find(p => p.id === targetId);
-        game.gameLog.push(`${voter?.name} voted for ${target?.name}`);
         
-        // Check if all alive players have voted
-        const alivePlayers = game.players.filter(p => p.alive);
-        const votesReceived = Object.keys(game.votes).length;
-        
-        if (votesReceived === alivePlayers.length) {
-          processVoting(gameId);
-        } else {
-          io.to(gameId).emit('gameUpdate', game);
-        }
+        // Don't log individual votes - will be revealed with results
+        // Only update the game state
+        io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
       console.error('Error in vote:', error);
@@ -242,7 +240,7 @@ io.on('connection', (socket) => {
       const eliminatedPlayer = game.players.find(p => p.id === eliminatedId);
       if (eliminatedPlayer && eliminatedPlayer.alive) {
         eliminatedPlayer.alive = false;
-        eliminationMessage = `🗳️ ${eliminatedPlayer.name} (${eliminatedPlayer.role}) was eliminated by vote!`;
+        eliminationMessage = `🗳️ ${eliminatedPlayer.name} was eliminated by vote!`;
       }
     } else {
       eliminationMessage = '🗳️ No one was eliminated - tied vote!';
@@ -270,6 +268,7 @@ io.on('connection', (socket) => {
       game.currentPhase = 'mafia';
       game.nightActions = {};
       game.votes = {};
+      game.nightResults = []; // Clear for next night
       game.gameLog.push('🌙 Night phase begins...');
     }
 
@@ -277,21 +276,22 @@ io.on('connection', (socket) => {
     io.to(gameId).emit('gameUpdate', game);
   }
 
-  // Process night actions
+  // Process night actions and reveal results
   socket.on('processNight', (gameId) => {
     try {
       const game = games.get(gameId);
       if (game && game.currentPhase === 'results') {
-        // Apply night actions
-        const updatedPlayers = [...game.players];
-        const logMessages = [];
+        // Clear previous night results
+        game.nightResults = [];
 
+        // Apply night actions and build results
+        const updatedPlayers = [...game.players];
+        
         // Mafia kill
         if (game.nightActions.mafiaTarget !== null) {
           const target = updatedPlayers.find(p => p.id === game.nightActions.mafiaTarget);
           if (target && target.alive) {
-            target.alive = false;
-            logMessages.push(`🔪 Mafia killed ${target.name} (${target.role})`);
+            game.nightResults.push(`🔪 Mafia attempted to kill ${target.name}`);
           }
         }
 
@@ -302,13 +302,12 @@ io.on('connection', (socket) => {
           
           if (target && target.alive) {
             if (target.role === 'Mafia') {
-              target.alive = false;
-              logMessages.push(`🎯 Sheriff shot ${target.name} (${target.role}) - Correct!`);
+              game.nightResults.push(`🎯 Sheriff shot ${target.name} - Correct!`);
             } else {
               // Sheriff dies for shooting innocent
               if (sheriff) sheriff.alive = false;
               target.alive = false; // Target also dies
-              logMessages.push(`💥 Sheriff shot ${target.name} (${target.role}) - Wrong! Sheriff dies too!`);
+              game.nightResults.push(`💥 Sheriff shot ${target.name} - Wrong! Sheriff dies too!`);
             }
           }
         }
@@ -318,13 +317,12 @@ io.on('connection', (socket) => {
           const target = updatedPlayers.find(p => p.id === game.nightActions.doctorTarget);
           if (target && !target.alive) {
             target.alive = true;
-            logMessages.push(`🏥 Doctor revived ${target.name}`);
+            game.nightResults.push(`🏥 Doctor revived ${target.name}`);
           }
         }
 
         // Update players
         game.players = updatedPlayers;
-        game.gameLog = [...game.gameLog, ...logMessages];
         
         // Check win conditions
         const alivePlayers = game.players.filter(p => p.alive);

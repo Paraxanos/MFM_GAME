@@ -30,6 +30,7 @@
       const [players, setPlayers] = useState([]);
       const [currentPhase, setCurrentPhase] = useState('');
       const [gameLog, setGameLog] = useState(['Welcome to Mafia for Monke!']);
+      const [nightResults, setNightResults] = useState([]);
       const [localPlayer, setLocalPlayer] = useState(null);
       const [playerName, setPlayerName] = useState('');
       const [gameId, setGameId] = useState('');
@@ -53,6 +54,7 @@
           setPlayers(game.players || []);
           setCurrentPhase(game.currentPhase);
           setGameLog(game.gameLog || ['Welcome to Mafia for Monke!']);
+          setNightResults(game.nightResults || []);
           
           // Find local player
           const local = game.players?.find(p => p.socketId === socket.id);
@@ -277,7 +279,6 @@
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="font-medium">{player.name}</p>
-                          {/* No role display for other players */}
                         </div>
                         <div className="text-right">
                           {player.alive ? (
@@ -374,12 +375,22 @@
               {gameState === 'night' && currentPhase === 'results' && (
                 <div className="bg-black bg-opacity-30 rounded-xl p-6 backdrop-blur-sm mb-6">
                   <h3 className="text-xl font-semibold mb-4">Night Results</h3>
-                  <p className="text-yellow-300 mb-4">All night actions have been processed. The results will be revealed before voting.</p>
+                  <div className="space-y-2 mb-4">
+                    {nightResults.length > 0 ? (
+                      nightResults.map((result, index) => (
+                        <div key={index} className="text-yellow-300 p-2 bg-gray-800 bg-opacity-50 rounded">
+                          {result}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-yellow-300">No night actions were performed.</p>
+                    )}
+                  </div>
                   <button
                     onClick={processNight}
                     className="bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 px-8 py-3 rounded-lg font-semibold transition-all duration-200"
                   >
-                    Reveal Results & Start Voting
+                    Start Voting
                   </button>
                 </div>
               )}
@@ -404,7 +415,6 @@
                         } ${player.id === localPlayer?.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
                         <div className="font-medium">{player.name}</div>
-                        {/* Removed role from voting buttons */}
                         {votes[localPlayer?.id] === player.id && (
                           <div className="text-yellow-400 mt-1">✓ Voted</div>
                         )}
