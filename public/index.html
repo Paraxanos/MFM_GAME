@@ -1,447 +1,219 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mafia for Monke 🐵</title>
+  <title>Mafia for Monke</title>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    .role-mafia { color: #ef4444; }
-    .role-sheriff { color: #3b82f6; }
-    .role-doctor { color: #10b981; }
-    .role-mayor { color: #8b5cf6; }
-    .role-jester { color: #eab308; }
-    .role-civilian { color: #6b7280; }
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #1e3c72, #2a5298);
+      min-height: 100vh;
+      color: white;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 2.5em;
+      background: linear-gradient(45deg, #ff6b6b, #5f27cd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 5px;
+      box-sizing: border-box;
+    }
+    .btn {
+      background: linear-gradient(45deg, #ff6b6b, #5f27cd);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      width: 100%;
+    }
+    .btn:hover {
+      opacity: 0.9;
+    }
+    .game-info {
+      margin: 20px 0;
+      padding: 15px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 5px;
+    }
+    .players {
+      margin: 20px 0;
+      padding: 15px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 5px;
+    }
+    .player {
+      padding: 10px;
+      margin: 5px 0;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 5px;
+    }
+    .messages {
+      margin: 20px 0;
+      padding: 15px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 5px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .message {
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .message:last-child {
+      border-bottom: none;
+    }
   </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white min-h-screen">
-  <div id="root"></div>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Mafia for Monke 🐵</h1>
+      <p>A simple multiplayer game</p>
+    </div>
 
-  <script type="text/babel">
-    const { useState, useEffect, useCallback } = React;
+    <!-- Join Form -->
+    <div id="joinForm">
+      <div class="form-group">
+        <label>Your Name</label>
+        <input type="text" id="playerName" placeholder="Enter your name">
+      </div>
+      <div class="form-group">
+        <label>Game ID</label>
+        <div style="display: flex;">
+          <input type="text" id="gameId" placeholder="Game ID">
+          <button onclick="generateId()" style="margin-left: 5px; padding: 0 10px;">Generate</button>
+        </div>
+      </div>
+      <button onclick="joinGame()" class="btn">Join Game</button>
+    </div>
 
-    const App = () => {
-      const [gameState, setGameState] = useState('lobby');
-      const [players, setPlayers] = useState([]);
-      const [currentPhase, setCurrentPhase] = useState('');
-      const [gameLog, setGameLog] = useState(['Welcome to Mafia for Monke!']);
-      const [localPlayer, setLocalPlayer] = useState(null);
-      const [playerName, setPlayerName] = useState('');
-      const [gameId, setGameId] = useState('');
-      const [showGame, setShowGame] = useState(false);
-      const [votes, setVotes] = useState({});
-      const [nightActions, setNightActions] = useState({
-        mafiaTarget: null,
-        sheriffTarget: null,
-        doctorTarget: null,
-        sheriffShoot: false
-      });
+    <!-- Game Interface (hidden initially) -->
+    <div id="gameInterface" style="display: none;">
+      <div class="game-info">
+        <h2>Game: <span id="gameIdDisplay"></span></h2>
+        <p>Players: <span id="playerCount">0</span></p>
+      </div>
 
-      // Generate a random game ID on component mount
-      useEffect(() => {
-        setGameId(Math.random().toString(36).substr(2, 6).toUpperCase());
-      }, []);
+      <div class="players">
+        <h3>Players</h3>
+        <div id="playersList"></div>
+      </div>
 
-      // Setup Socket.IO connection
-      useEffect(() => {
-        const socket = io();
-        
-        // Listen for game updates
-        socket.on('gameUpdate', (game) => {
-          setGameState(game.gameState);
-          setPlayers(game.players);
-          setCurrentPhase(game.currentPhase);
-          setGameLog(prev => [...prev, ...game.gameLog.slice(prev.length)]);
-          
-          // Find local player
-          const local = game.players.find(p => p.socketId === socket.id);
-          if (local) {
-            setLocalPlayer(local);
-          }
-        });
+      <div class="messages">
+        <h3>Game Messages</h3>
+        <div id="messages"></div>
+      </div>
+    </div>
+  </div>
 
-        // Clean up on unmount
-        return () => {
-          socket.disconnect();
-        };
-      }, []);
+  <script>
+    // DOM elements
+    const joinForm = document.getElementById('joinForm');
+    const gameInterface = document.getElementById('gameInterface');
+    const playerNameInput = document.getElementById('playerName');
+    const gameIdInput = document.getElementById('gameId');
+    const gameIdDisplay = document.getElementById('gameIdDisplay');
+    const playerCount = document.getElementById('playerCount');
+    const playersList = document.getElementById('playersList');
+    const messages = document.getElementById('messages');
 
-      const joinGame = () => {
-        if (!playerName.trim()) {
-          alert('Please enter your name');
-          return;
-        }
-        
-        const socket = io();
-        const gameIdToUse = gameId.trim() || Math.random().toString(36).substr(2, 6).toUpperCase();
-        
-        socket.emit('joinGame', { 
-          gameId: gameIdToUse, 
-          playerName: playerName.trim(),
-          socketId: socket.id 
-        });
-        
-        setGameId(gameIdToUse);
-        setShowGame(true);
-      };
+    // Generate random game ID
+    function generateId() {
+      const id = Math.random().toString(36).substr(2, 6).toUpperCase();
+      gameIdInput.value = id;
+    }
 
-      const startGame = () => {
-        const socket = io();
-        socket.emit('startGame', gameId);
-      };
-
-      const handleMafiaAction = (targetId) => {
-        const socket = io();
-        socket.emit('mafiaAction', { gameId, targetId });
-      };
-
-      const handleSheriffAction = (targetId, shoot = false) => {
-        const socket = io();
-        socket.emit('sheriffAction', { gameId, targetId, shoot });
-      };
-
-      const handleDoctorAction = (targetId) => {
-        const socket = io();
-        socket.emit('doctorAction', { gameId, targetId });
-      };
-
-      const handleVote = (targetId) => {
-        const socket = io();
-        socket.emit('vote', { 
-          gameId, 
-          voterId: document.querySelector('#root').dataset.socketId || 'unknown',
-          targetId 
-        });
-      };
-
-      const getAlivePlayers = () => players.filter(p => p.alive);
-      const getRoleColor = (role) => {
-        switch (role) {
-          case 'Mafia': return 'text-red-500';
-          case 'Sheriff': return 'text-blue-500';
-          case 'Doctor': return 'text-green-500';
-          case 'Mayor': return 'text-purple-500';
-          case 'Jester': return 'text-yellow-500';
-          default: return 'text-gray-500';
-        }
-      };
-
-      if (!showGame) {
-        return (
-          <div className="container mx-auto px-4 py-8">
-            <div className="text-center mb-8">
-              <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-red-400 to-purple-500 bg-clip-text text-transparent">
-                Mafia for Monke 🐵
-              </h1>
-              <p className="text-xl text-gray-300">A social deduction game of deception and strategy</p>
-            </div>
-
-            <div className="max-w-md mx-auto bg-black bg-opacity-30 rounded-xl p-8 backdrop-blur-sm">
-              <h2 className="text-3xl font-bold mb-6 text-center">Join Game</h2>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Your Name</label>
-                  <input 
-                    type="text" 
-                    value={playerName}
-                    onChange={(e) => setPlayerName(e.target.value)}
-                    placeholder="Enter your name"
-                    className="w-full p-3 rounded-lg bg-gray-800 border border-gray-600 focus:border-purple-500 focus:outline-none"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium mb-2">Game ID</label>
-                  <div className="flex">
-                    <input 
-                      type="text" 
-                      value={gameId}
-                      onChange={(e) => setGameId(e.target.value)}
-                      placeholder="Game ID (or use generated one)"
-                      className="flex-1 p-3 rounded-l-lg bg-gray-800 border border-gray-600 focus:border-purple-500 focus:outline-none"
-                    />
-                    <button 
-                      onClick={() => setGameId(Math.random().toString(36).substr(2, 6).toUpperCase())}
-                      className="bg-gray-700 hover:bg-gray-600 px-4 rounded-r-lg"
-                    >
-                      Generate
-                    </button>
-                  </div>
-                </div>
-                
-                <button 
-                  onClick={joinGame}
-                  className="w-full bg-gradient-to-r from-red-500 to-purple-600 hover:from-red-600 hover:to-purple-700 px-8 py-4 rounded-lg text-xl font-bold transition-all duration-200 transform hover:scale-105"
-                >
-                  Join Game
-                </button>
-              </div>
-
-              <div className="mt-6 text-center text-sm text-gray-400">
-                <p>Share the Game ID with your friends to play together!</p>
-              </div>
-            </div>
-          </div>
-        );
+    // Join game
+    function joinGame() {
+      const name = playerNameInput.value.trim();
+      const gameId = gameIdInput.value.trim().toUpperCase();
+      
+      if (!name) {
+        alert('Please enter your name');
+        return;
+      }
+      
+      if (!gameId) {
+        alert('Please enter a Game ID');
+        return;
       }
 
-      return (
-        <div className="container mx-auto px-4 py-8">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-red-400 to-purple-500 bg-clip-text text-transparent">
-              Mafia for Monke 🐵
-            </h1>
-            <p className="text-xl text-gray-300">Game ID: <strong>{gameId}</strong></p>
-          </div>
+      // Connect to socket
+      const socket = io();
+      
+      // Join game
+      socket.emit('join', { gameId, name });
+      
+      // Update UI
+      gameIdDisplay.textContent = gameId;
+      joinForm.style.display = 'none';
+      gameInterface.style.display = 'block';
 
-          {/* Game Status */}
-          <div className="bg-black bg-opacity-30 rounded-xl p-6 mb-6 backdrop-blur-sm">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-4">
-              <div>
-                <h2 className="text-2xl font-semibold">
-                  {gameState === 'lobby' ? 'Lobby' : 
-                   currentPhase === 'mafia' ? 'Mafia Phase' :
-                   currentPhase === 'sheriff' ? 'Sheriff Phase' :
-                   currentPhase === 'doctor' ? 'Doctor Phase' :
-                   currentPhase === 'discussion' ? 'Discussion Phase' :
-                   currentPhase === 'voting' ? 'Voting Phase' : 'Night Phase'}
-                </h2>
-                {localPlayer && (
-                  <p className="text-gray-300">
-                    You are: <span className={getRoleColor(localPlayer.role)}>{localPlayer.role}</span>
-                    {localPlayer.isMayor && " (Mayor)"}
-                  </p>
-                )}
-              </div>
-              <div className="text-right mt-2 sm:mt-0">
-                <p className="text-lg">Alive: {getAlivePlayers().length}/{players.length}</p>
-              </div>
-            </div>
-
-            {gameState === 'lobby' && players.length > 0 && (
-              <div className="text-center">
-                <p className="mb-4">Players in game: {players.length}</p>
-                {players.length > 1 && (
-                  <button
-                    onClick={startGame}
-                    className="bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 px-8 py-3 rounded-lg font-semibold transition-all duration-200"
-                  >
-                    Start Game
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Player List */}
-            <div className="lg:col-span-1">
-              <div className="bg-black bg-opacity-30 rounded-xl p-6 backdrop-blur-sm">
-                <h3 className="text-xl font-semibold mb-4">Players</h3>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {players.map(player => (
-                    <div
-                      key={player.id}
-                      className={`p-3 rounded-lg transition-all duration-200 ${
-                        player.alive 
-                          ? 'bg-gray-800 bg-opacity-50' 
-                          : 'bg-gray-800 bg-opacity-30 line-through opacity-60'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-medium">{player.name}</p>
-                          {player.alive && (
-                            <p className={`text-sm ${getRoleColor(player.role)}`}>
-                              {player.role}
-                              {player.isMayor && " (Mayor)"}
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          {player.alive ? (
-                            <span className="text-green-400 text-sm">✓ Alive</span>
-                          ) : (
-                            <span className="text-red-400 text-sm">✗ Dead</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Game Area */}
-            <div className="lg:col-span-2">
-              {/* Night Phase Actions */}
-              {gameState === 'night' && (
-                <div className="bg-black bg-opacity-30 rounded-xl p-6 backdrop-blur-sm mb-6">
-                  <h3 className="text-xl font-semibold mb-4">Night Actions</h3>
-                  
-                  {currentPhase === 'mafia' && localPlayer?.role === 'Mafia' && localPlayer.alive && (
-                    <div>
-                      <p className="mb-4 text-yellow-300">Choose a player to eliminate:</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {getAlivePlayers().filter(p => p.role !== 'Mafia').map(player => (
-                          <button
-                            key={player.id}
-                            onClick={() => handleMafiaAction(player.id)}
-                            className="bg-red-600 hover:bg-red-700 p-3 rounded-lg transition-colors"
-                          >
-                            {player.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {currentPhase === 'sheriff' && localPlayer?.role === 'Sheriff' && localPlayer.alive && (
-                    <div>
-                      <p className="mb-4 text-blue-300">Choose a player to investigate or shoot:</p>
-                      <div className="grid grid-cols-2 gap-2 mb-4">
-                        {getAlivePlayers().filter(p => p.id !== localPlayer.id).map(player => (
-                          <button
-                            key={player.id}
-                            onClick={() => handleSheriffAction(player.id)}
-                            className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg transition-colors"
-                          >
-                            Investigate {player.name}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="text-center">
-                        <button
-                          onClick={() => handleSheriffAction(localPlayer.id, true)}
-                          className="bg-red-600 hover:bg-red-700 px-6 py-2 rounded-lg font-semibold"
-                        >
-                          Shoot Selected Player
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {currentPhase === 'doctor' && localPlayer?.role === 'Doctor' && localPlayer.alive && (
-                    <div>
-                      <p className="mb-4 text-green-300">Choose a player to heal (can save from mafia or sheriff):</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {getAlivePlayers().map(player => (
-                          <button
-                            key={player.id}
-                            onClick={() => handleDoctorAction(player.id)}
-                            className="bg-green-600 hover:bg-green-700 p-3 rounded-lg transition-colors"
-                          >
-                            Heal {player.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="text-center text-gray-400 mt-4">
-                    <p>Waiting for actions to complete...</p>
-                    <div className="animate-pulse mt-2">🌙</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Discussion Phase */}
-              {gameState === 'discussion' && (
-                <div className="bg-black bg-opacity-30 rounded-xl p-6 backdrop-blur-sm mb-6">
-                  <h3 className="text-xl font-semibold mb-4">Discussion Phase</h3>
-                  <p className="mb-4 text-yellow-300">
-                    Discuss who you think the mafia is. Share your suspicions and alibis!
-                  </p>
-                  <div className="text-center">
-                    <button
-                      onClick={() => {
-                        const socket = io();
-                        socket.emit('processVoting', gameId);
-                      }}
-                      className="bg-gradient-to-r from-blue-500 to-cyan-600 hover:from-blue-600 hover:to-cyan-700 px-8 py-3 rounded-lg font-semibold transition-all duration-200"
-                    >
-                      Start Voting
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Voting Phase */}
-              {gameState === 'voting' && (
-                <div className="bg-black bg-opacity-30 rounded-xl p-6 backdrop-blur-sm mb-6">
-                  <h3 className="text-xl font-semibold mb-4">Voting Phase</h3>
-                  <p className="mb-4 text-purple-300">
-                    Vote for the player you believe is the mafia. Mayor's vote counts as 2!
-                  </p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {getAlivePlayers().map(player => (
-                      <button
-                        key={player.id}
-                        onClick={() => handleVote(player.id)}
-                        className="p-4 rounded-lg bg-gray-700 hover:bg-gray-600 transition-all duration-200"
-                      >
-                        <div className="font-medium">{player.name}</div>
-                        <div className="text-sm opacity-75">{player.role}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Game Log */}
-              <div className="bg-black bg-opacity-30 rounded-xl p-6 backdrop-blur-sm">
-                <h3 className="text-xl font-semibold mb-4">Game Log</h3>
-                <div className="max-h-64 overflow-y-auto space-y-2">
-                  {gameLog.map((log, index) => (
-                    <div key={index} className="text-sm bg-gray-800 bg-opacity-50 p-2 rounded text-gray-300">
-                      {log}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Instructions */}
-          <div className="mt-8 bg-black bg-opacity-30 rounded-xl p-6 backdrop-blur-sm">
-            <h3 className="text-xl font-semibold mb-4">How to Play</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h4 className="font-semibold text-blue-400 mb-2">Roles:</h4>
-                <ul className="text-sm space-y-1 text-gray-300">
-                  <li>• <span className="text-red-400">Mafia</span>: Kill one player each night</li>
-                  <li>• <span className="text-blue-400">Sheriff</span>: Investigate or shoot players (shoots self if wrong)</li>
-                  <li>• <span className="text-green-400">Doctor</span>: Heal one player each night</li>
-                  <li>• <span className="text-purple-400">Mayor</span>: Vote counts as 2 (role hidden)</li>
-                  <li>• <span className="text-yellow-400">Jester</span>: Win by being voted out</li>
-                  <li>• <span className="text-gray-400">Civilian</span>: Find and eliminate the mafia</li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-semibold text-green-400 mb-2">Rules:</h4>
-                <ul className="text-sm space-y-1 text-gray-300">
-                  <li>• Night: Mafia kills, Sheriff investigates/shoots, Doctor heals</li>
-                  <li>• Day: Discussion and voting phase</li>
-                  <li>• Mayor's vote counts as 2 votes</li>
-                  <li>• Civilians win when all mafia are eliminated</li>
-                  <li>• Mafia win when they equal or outnumber innocents</li>
-                  <li>• Sheriff dies if they shoot an innocent civilian</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
+      // Listen for updates
+      socket.on('update', (game) => {
+        console.log('Game update:', game);
+        
+        // Update player count
+        playerCount.textContent = game.players.length;
+        
+        // Update players list
+        playersList.innerHTML = '';
+        game.players.forEach(player => {
+          const playerEl = document.createElement('div');
+          playerEl.className = 'player';
+          playerEl.textContent = player.name;
+          playersList.appendChild(playerEl);
+        });
+        
+        // Update messages
+        messages.innerHTML = '';
+        game.messages.forEach(msg => {
+          const msgEl = document.createElement('div');
+          msgEl.className = 'message';
+          msgEl.textContent = msg;
+          messages.appendChild(msgEl);
+        });
+        
+        // Scroll to bottom
+        messages.scrollTop = messages.scrollHeight;
+      });
     };
 
-    ReactDOM.render(<App />, document.getElementById('root'));
+    // Generate ID on load
+    window.onload = function() {
+      generateId();
+    };
   </script>
 </body>
 </html>
