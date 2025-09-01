@@ -313,6 +313,11 @@
             };
             actionButtons.appendChild(btn);
           });
+        } else {
+          const msg = document.createElement('p');
+          msg.textContent = 'Waiting for Mafia to make their move...';
+          msg.style.color = '#ff6b6b';
+          actionButtons.appendChild(msg);
         }
       }
       else if (gameState.phase === 'Day - Voting') {
