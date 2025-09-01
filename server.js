@@ -31,7 +31,7 @@ io.on('connection', (socket) => {
           votes: {},
           gameLog: [`Game created! ID: ${gameId}`],
           winner: null,
-          nightResults: [] // Store night results to reveal later
+          nightResults: []
         });
       }
 
@@ -87,7 +87,7 @@ io.on('connection', (socket) => {
         game.currentPhase = 'mafia';
         game.nightActions = {};
         game.votes = {};
-        game.nightResults = []; // Clear previous night results
+        game.nightResults = [];
         game.gameLog = [...game.gameLog, 'Game started! Night phase begins...'];
         game.winner = null;
         
@@ -116,7 +116,7 @@ io.on('connection', (socket) => {
         game.nightActions.mafiaTarget = targetId;
         game.currentPhase = 'sheriff';
         
-        // Don't log individual actions - save for final reveal
+        // Don't log individual actions
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -133,7 +133,7 @@ io.on('connection', (socket) => {
         game.nightActions.sheriffShoot = shoot;
         game.currentPhase = 'doctor';
         
-        // Don't log individual actions - save for final reveal
+        // Don't log individual actions
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -149,7 +149,7 @@ io.on('connection', (socket) => {
         game.nightActions.doctorTarget = targetId;
         game.currentPhase = 'results';
         
-        // Don't log individual actions - save for final reveal
+        // Don't log individual actions
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -197,11 +197,7 @@ io.on('connection', (socket) => {
       if (game && game.currentPhase === 'voting') {
         game.votes[voterId] = targetId;
         
-        const voter = game.players.find(p => p.socketId === voterId);
-        const target = game.players.find(p => p.id === targetId);
-        
-        // Don't log individual votes - will be revealed with results
-        // Only update the game state
+        // Don't log individual votes
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -268,7 +264,7 @@ io.on('connection', (socket) => {
       game.currentPhase = 'mafia';
       game.nightActions = {};
       game.votes = {};
-      game.nightResults = []; // Clear for next night
+      game.nightResults = [];
       game.gameLog.push('🌙 Night phase begins...');
     }
 
@@ -286,39 +282,49 @@ io.on('connection', (socket) => {
 
         // Apply night actions and build results
         const updatedPlayers = [...game.players];
+        let anyAction = false;
         
         // Mafia kill
-        if (game.nightActions.mafiaTarget !== null) {
+        if (game.nightActions.mafiaTarget !== null && game.nightActions.mafiaTarget !== undefined) {
           const target = updatedPlayers.find(p => p.id === game.nightActions.mafiaTarget);
           if (target && target.alive) {
             game.nightResults.push(`🔪 Mafia attempted to kill ${target.name}`);
+            anyAction = true;
           }
         }
 
         // Sheriff shoot
-        if (game.nightActions.sheriffShoot && game.nightActions.sheriffTarget !== null) {
+        if (game.nightActions.sheriffShoot && game.nightActions.sheriffTarget !== null && game.nightActions.sheriffTarget !== undefined) {
           const target = updatedPlayers.find(p => p.id === game.nightActions.sheriffTarget);
           const sheriff = updatedPlayers.find(p => p.role === 'Sheriff' && p.alive);
           
           if (target && target.alive) {
             if (target.role === 'Mafia') {
               game.nightResults.push(`🎯 Sheriff shot ${target.name} - Correct!`);
+              anyAction = true;
             } else {
               // Sheriff dies for shooting innocent
               if (sheriff) sheriff.alive = false;
               target.alive = false; // Target also dies
               game.nightResults.push(`💥 Sheriff shot ${target.name} - Wrong! Sheriff dies too!`);
+              anyAction = true;
             }
           }
         }
 
         // Doctor revive
-        if (game.nightActions.doctorTarget !== null) {
+        if (game.nightActions.doctorTarget !== null && game.nightActions.doctorTarget !== undefined) {
           const target = updatedPlayers.find(p => p.id === game.nightActions.doctorTarget);
           if (target && !target.alive) {
             target.alive = true;
             game.nightResults.push(`🏥 Doctor revived ${target.name}`);
+            anyAction = true;
           }
+        }
+
+        // If no actions were performed, add a message
+        if (!anyAction) {
+          game.nightResults.push('🌙 No actions were performed during the night.');
         }
 
         // Update players
