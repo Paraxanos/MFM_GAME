@@ -448,6 +448,7 @@
         const btn = document.createElement('button');
         btn.textContent = 'Start Voting';
         btn.className = 'btn';
+        btn.onclick = () => socket.emit('startVoting', currentGameId);
         gamePhaseContent.appendChild(btn);
       }
       else if (gameState.phase === 'Day - Voting') {
