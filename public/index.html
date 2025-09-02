@@ -50,6 +50,7 @@
         
         // Listen for game updates
         socket.on('gameUpdate', (game) => {
+          console.log('Received game update:', game);
           setGameState(game.gameState);
           setPlayers(game.players || []);
           setCurrentPhase(game.currentPhase);
@@ -65,6 +66,7 @@
 
         // Listen for role updates
         socket.on('roleUpdate', (roleData) => {
+          console.log('Received role update:', roleData);
           setLocalPlayer(prev => ({
             ...prev,
             role: roleData.role,

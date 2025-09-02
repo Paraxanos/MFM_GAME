@@ -85,7 +85,12 @@ io.on('connection', (socket) => {
         // Initialize game state
         game.gameState = 'night';
         game.currentPhase = 'mafia';
-        game.nightActions = {};
+        game.nightActions = {
+          mafiaTargets: [],
+          sheriffTarget: null,
+          sheriffShoot: false,
+          doctorTarget: null
+        };
         game.votes = {};
         game.nightResults = [];
         game.gameLog = [...game.gameLog, 'Game started! Night phase begins...'];
@@ -113,20 +118,27 @@ io.on('connection', (socket) => {
     try {
       const game = games.get(gameId);
       if (game && game.currentPhase === 'mafia') {
-        // Store mafia action
-        if (!game.nightActions.mafiaTargets) {
-          game.nightActions.mafiaTargets = [];
+        // Add target to mafia targets
+        if (targetId && !game.nightActions.mafiaTargets.includes(targetId)) {
+          game.nightActions.mafiaTargets.push(targetId);
         }
-        game.nightActions.mafiaTargets.push(targetId);
         
         // Check if both mafias have acted
         const mafiaPlayers = game.players.filter(p => p.role === 'Mafia' && p.alive);
-        const actionsCount = game.nightActions.mafiaTargets.length;
+        const actingMafias = new Set();
+        game.nightActions.mafiaTargets.forEach(targetId => {
+          const voter = game.players.find(p => p.id === targetId);
+          if (voter && voter.role === 'Mafia') {
+            actingMafias.add(voter.id);
+          }
+        });
         
-        if (actionsCount >= mafiaPlayers.length) {
+        // If all mafias have acted, move to next phase
+        if (actingMafias.size >= mafiaPlayers.length) {
           game.currentPhase = 'sheriff';
         }
         
+        // Update game state
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -277,7 +289,12 @@ io.on('connection', (socket) => {
       // Continue to next night
       game.gameState = 'night';
       game.currentPhase = 'mafia';
-      game.nightActions = {};
+      game.nightActions = {
+        mafiaTargets: [],
+        sheriffTarget: null,
+        sheriffShoot: false,
+        doctorTarget: null
+      };
       game.votes = {};
       game.nightResults = [];
       game.gameLog.push('🌙 Night phase begins...');
@@ -301,7 +318,10 @@ io.on('connection', (socket) => {
         
         // Mafia kills - handle multiple mafias
         if (game.nightActions.mafiaTargets && game.nightActions.mafiaTargets.length > 0) {
-          game.nightActions.mafiaTargets.forEach(targetId => {
+          // Get unique targets (in case multiple mafias target the same person)
+          const uniqueTargets = [...new Set(game.nightActions.mafiaTargets)];
+          
+          uniqueTargets.forEach(targetId => {
             const target = updatedPlayers.find(p => p.id === targetId);
             if (target && target.alive) {
               game.nightResults.push(`🔪 Mafia attempted to kill ${target.name}`);
