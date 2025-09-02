@@ -86,7 +86,8 @@ io.on('connection', (socket) => {
         game.gameState = 'night';
         game.currentPhase = 'mafia';
         game.nightActions = {
-          mafiaTargets: [],
+          mafiaTarget: null,  // Single target that both mafias must agree on
+          mafiaVotes: {},     // Track each mafia's vote
           sheriffTarget: null,
           sheriffShoot: false,
           doctorTarget: null
@@ -113,33 +114,46 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Mafia action
+  // Mafia action - both mafias must agree on the same target
   socket.on('mafiaAction', ({ gameId, targetId }) => {
     try {
       const game = games.get(gameId);
       if (game && game.currentPhase === 'mafia') {
-        // Add target to mafia targets
-        if (targetId && !game.nightActions.mafiaTargets.includes(targetId)) {
-          game.nightActions.mafiaTargets.push(targetId);
-        }
+        // Find the player who sent this action
+        const player = game.players.find(p => p.socketId === socket.id);
         
-        // Check if both mafias have acted
-        const mafiaPlayers = game.players.filter(p => p.role === 'Mafia' && p.alive);
-        const actingMafias = new Set();
-        game.nightActions.mafiaTargets.forEach(targetId => {
-          const voter = game.players.find(p => p.id === targetId);
-          if (voter && voter.role === 'Mafia') {
-            actingMafias.add(voter.id);
+        // Only allow mafias to vote
+        if (player && player.role === 'Mafia' && player.alive) {
+          // Record this mafia's vote
+          game.nightActions.mafiaVotes[player.id] = targetId;
+          
+          // Get all mafia players
+          const mafiaPlayers = game.players.filter(p => p.role === 'Mafia' && p.alive);
+          
+          // Check if all mafias have voted
+          const votedMafias = Object.keys(game.nightActions.mafiaVotes).length;
+          
+          if (votedMafias === mafiaPlayers.length) {
+            // All mafias have voted, check if they agree
+            const votes = Object.values(game.nightActions.mafiaVotes);
+            const uniqueVotes = [...new Set(votes)];
+            
+            if (uniqueVotes.length === 1) {
+              // All mafias agree on the same target
+              game.nightActions.mafiaTarget = uniqueVotes[0];
+              game.currentPhase = 'sheriff';
+              game.gameLog.push(`Mafia has agreed to eliminate ${game.players.find(p => p.id === uniqueVotes[0])?.name}`);
+            } else {
+              // Mafias don't agree, no kill
+              game.nightActions.mafiaTarget = null;
+              game.currentPhase = 'sheriff';
+              game.gameLog.push('Mafia failed to agree on a target - no kill');
+            }
           }
-        });
-        
-        // If all mafias have acted, move to next phase
-        if (actingMafias.size >= mafiaPlayers.length) {
-          game.currentPhase = 'sheriff';
+          
+          // Update game state
+          io.to(gameId).emit('gameUpdate', game);
         }
-        
-        // Update game state
-        io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
       console.error('Error in mafiaAction:', error);
@@ -290,7 +304,8 @@ io.on('connection', (socket) => {
       game.gameState = 'night';
       game.currentPhase = 'mafia';
       game.nightActions = {
-        mafiaTargets: [],
+        mafiaTarget: null,
+        mafiaVotes: {},
         sheriffTarget: null,
         sheriffShoot: false,
         doctorTarget: null
@@ -316,18 +331,16 @@ io.on('connection', (socket) => {
         // Apply night actions and build results
         const updatedPlayers = [...game.players];
         
-        // Mafia kills - handle multiple mafias
-        if (game.nightActions.mafiaTargets && game.nightActions.mafiaTargets.length > 0) {
-          // Get unique targets (in case multiple mafias target the same person)
-          const uniqueTargets = [...new Set(game.nightActions.mafiaTargets)];
-          
-          uniqueTargets.forEach(targetId => {
-            const target = updatedPlayers.find(p => p.id === targetId);
-            if (target && target.alive) {
-              game.nightResults.push(`🔪 Mafia attempted to kill ${target.name}`);
-              anyAction = true;
-            }
-          });
+        // Mafia kill - only if both mafias agreed
+        if (game.nightActions.mafiaTarget !== null && game.nightActions.mafiaTarget !== undefined) {
+          const target = updatedPlayers.find(p => p.id === game.nightActions.mafiaTarget);
+          if (target && target.alive) {
+            game.nightResults.push(`🔪 Mafia agreed to kill ${target.name}`);
+            anyAction = true;
+          }
+        } else if (game.nightActions.mafiaVotes && Object.keys(game.nightActions.mafiaVotes).length > 0) {
+          game.nightResults.push('🔪 Mafia failed to agree on a target - no kill');
+          anyAction = true;
         }
 
         // Sheriff shoot

@@ -311,7 +311,7 @@
                   
                   {currentPhase === 'mafia' && localPlayer?.role === 'Mafia' && localPlayer.alive && (
                     <div>
-                      <p className="mb-4 text-yellow-300">Choose a player to eliminate:</p>
+                      <p className="mb-4 text-yellow-300">Both Mafias must agree on the same target to eliminate:</p>
                       <div className="grid grid-cols-2 gap-2">
                         {getAlivePlayers().filter(p => p.role !== 'Mafia').map(player => (
                           <button
@@ -462,7 +462,7 @@
               <div>
                 <h4 className="font-semibold text-blue-400 mb-2">Roles:</h4>
                 <ul className="text-sm space-y-1 text-gray-300">
-                  <li>• <span className="text-red-400">Mafia</span> (x2): Kill one player each night</li>
+                  <li>• <span className="text-red-400">Mafia</span> (x2): Both must agree on the same target to kill</li>
                   <li>• <span className="text-blue-400">Sheriff</span>: Investigate or shoot players (shoots self if wrong)</li>
                   <li>• <span className="text-green-400">Doctor</span>: Heal one player each night</li>
                   <li>• <span className="text-purple-400">Mayor</span>: Vote counts as 2 (role hidden)</li>
@@ -474,7 +474,7 @@
                 <h4 className="font-semibold text-green-400 mb-2">Rules:</h4>
                 <ul className="text-sm space-y-1 text-gray-300">
                   <li>• Need at least 5 players to start</li>
-                  <li>• Night: Mafia kills, Sheriff investigates/shoots, Doctor heals</li>
+                  <li>• Night: Mafias agree, Sheriff investigates/shoots, Doctor heals</li>
                   <li>• Day: Discussion and voting phase</li>
                   <li>• Mayor's vote counts as 2 votes</li>
                   <li>• Civilians win when all mafia are eliminated</li>
