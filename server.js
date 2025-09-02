@@ -69,10 +69,10 @@ io.on('connection', (socket) => {
   socket.on('startGame', (gameId) => {
     try {
       const game = games.get(gameId);
-      if (game && game.players.length >= 4 && game.gameState === 'lobby') {
-        // Assign roles
-        const rolePool = ['Mafia', 'Sheriff', 'Doctor', 'Mayor'];
-        const civilianCount = Math.max(0, game.players.length - 4);
+      if (game && game.players.length >= 5 && game.gameState === 'lobby') {
+        // Assign roles - 2 Mafias, 1 Sheriff, 1 Doctor, 1 Mayor, rest Civilians
+        const rolePool = ['Mafia', 'Mafia', 'Sheriff', 'Doctor', 'Mayor'];
+        const civilianCount = Math.max(0, game.players.length - 5);
         const civilians = Array(civilianCount).fill('Civilian');
         const allRoles = [...rolePool, ...civilians].sort(() => Math.random() - 0.5);
         
@@ -113,10 +113,20 @@ io.on('connection', (socket) => {
     try {
       const game = games.get(gameId);
       if (game && game.currentPhase === 'mafia') {
-        game.nightActions.mafiaTarget = targetId;
-        game.currentPhase = 'sheriff';
+        // Store mafia action
+        if (!game.nightActions.mafiaTargets) {
+          game.nightActions.mafiaTargets = [];
+        }
+        game.nightActions.mafiaTargets.push(targetId);
         
-        // Don't log individual actions
+        // Check if both mafias have acted
+        const mafiaPlayers = game.players.filter(p => p.role === 'Mafia' && p.alive);
+        const actionsCount = game.nightActions.mafiaTargets.length;
+        
+        if (actionsCount >= mafiaPlayers.length) {
+          game.currentPhase = 'sheriff';
+        }
+        
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -133,7 +143,6 @@ io.on('connection', (socket) => {
         game.nightActions.sheriffShoot = shoot;
         game.currentPhase = 'doctor';
         
-        // Don't log individual actions
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -149,7 +158,6 @@ io.on('connection', (socket) => {
         game.nightActions.doctorTarget = targetId;
         game.currentPhase = 'results';
         
-        // Don't log individual actions
         io.to(gameId).emit('gameUpdate', game);
       }
     } catch (error) {
@@ -197,8 +205,15 @@ io.on('connection', (socket) => {
       if (game && game.currentPhase === 'voting') {
         game.votes[voterId] = targetId;
         
-        // Don't log individual votes
-        io.to(gameId).emit('gameUpdate', game);
+        // Check if all alive players have voted
+        const alivePlayers = game.players.filter(p => p.alive);
+        const votesReceived = Object.keys(game.votes).length;
+        
+        if (votesReceived === alivePlayers.length) {
+          processVoting(gameId);
+        } else {
+          io.to(gameId).emit('gameUpdate', game);
+        }
       }
     } catch (error) {
       console.error('Error in vote:', error);
@@ -279,18 +294,20 @@ io.on('connection', (socket) => {
       if (game && game.currentPhase === 'results') {
         // Clear previous night results
         game.nightResults = [];
+        let anyAction = false;
 
         // Apply night actions and build results
         const updatedPlayers = [...game.players];
-        let anyAction = false;
         
-        // Mafia kill
-        if (game.nightActions.mafiaTarget !== null && game.nightActions.mafiaTarget !== undefined) {
-          const target = updatedPlayers.find(p => p.id === game.nightActions.mafiaTarget);
-          if (target && target.alive) {
-            game.nightResults.push(`🔪 Mafia attempted to kill ${target.name}`);
-            anyAction = true;
-          }
+        // Mafia kills - handle multiple mafias
+        if (game.nightActions.mafiaTargets && game.nightActions.mafiaTargets.length > 0) {
+          game.nightActions.mafiaTargets.forEach(targetId => {
+            const target = updatedPlayers.find(p => p.id === targetId);
+            if (target && target.alive) {
+              game.nightResults.push(`🔪 Mafia attempted to kill ${target.name}`);
+              anyAction = true;
+            }
+          });
         }
 
         // Sheriff shoot
