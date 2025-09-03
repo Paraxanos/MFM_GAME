@@ -86,15 +86,15 @@ io.on('connection', (socket) => {
         game.gameState = 'night';
         game.currentPhase = 'mafia';
         game.nightActions = {
-          mafiaTarget: null,  // Single target that both mafias must agree on
-          mafiaVotes: {},     // Track each mafia's vote
+          mafiaTarget: null,
+          mafiaVotes: {},
           sheriffTarget: null,
           sheriffShoot: false,
           doctorTarget: null
         };
         game.votes = {};
         game.nightResults = [];
-        game.gameLog = [...game.gameLog, 'Game started! Night phase begins...'];
+        game.gameLog = [...game.gameId].join(''), 'Game started! Night phase begins...';
         game.winner = null;
         
         // Notify all players
@@ -142,7 +142,8 @@ io.on('connection', (socket) => {
               // All mafias agree on the same target
               game.nightActions.mafiaTarget = uniqueVotes[0];
               game.currentPhase = 'sheriff';
-              game.gameLog.push(`Mafia has agreed to eliminate ${game.players.find(p => p.id === uniqueVotes[0])?.name}`);
+              const target = game.players.find(p => p.id === uniqueVotes[0]);
+              game.gameLog.push(`Mafia has agreed to eliminate ${target?.name}`);
             } else {
               // Mafias don't agree, no kill
               game.nightActions.mafiaTarget = null;
